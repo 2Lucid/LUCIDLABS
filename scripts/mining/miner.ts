@@ -33,14 +33,14 @@ const QuizContentSchema = z.object({
 const log = (msg: string) => console.log(`[${new Date().toLocaleTimeString()}] ${msg}`);
 
 async function generateWithFallback(prompt: string) {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const result = await model.generateContent(prompt);
     return result;
 }
 
 async function judgeQuiz(quiz: any, topic: string) {
     const model = genAI.getGenerativeModel({
-        model: 'gemini-2.0-flash',
+        model: 'gemini-2.5-flash',
         generationConfig: { temperature: 0.3, responseMimeType: "application/json" }
     });
 

@@ -1,0 +1,12 @@
+
+> lucid-labs@0.1.0 mine
+> tsx scripts/mining/miner.ts
+
+sh: tsx: command not found
+npm error Lifecycle script `mine` failed with error:
+npm error code 127
+npm error path /Users/clem.b_o/Documents/LUCID_WORKSPACE/sites/lucid_labs
+npm error workspace lucid-labs@0.1.0
+npm error location /Users/clem.b_o/Documents/LUCID_WORKSPACE/sites/lucid_labs
+npm error command failed
+npm error command sh -c tsx scripts/mining/miner.ts

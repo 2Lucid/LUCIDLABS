@@ -122,7 +122,7 @@ export async function saveQuizWithEmbedding(quiz: any): Promise<void> {
                 tokens_total: quiz.tokens?.total || 0,
                 tokens_prompt: quiz.tokens?.prompt || 0,
                 tokens_response: quiz.tokens?.response || 0,
-                model_used: quiz.model || 'gemini-2.0-flash'
+                model_used: quiz.model || 'gemini-2.5-flash'
             }])
             .select();
 

@@ -10,7 +10,7 @@ if (!apiKey) {
 const genAI = new GoogleGenerativeAI(apiKey || "dummy-key");
 
 // Try these models in order (user specified)
-const modelsToTry = ["gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.0-flash-lite"];
+const modelsToTry = ["gemini-2.5-pro"];
 
 let selectedModel = modelsToTry[0];
 console.log(`[Gemini] Using model: ${selectedModel}`);
