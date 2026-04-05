@@ -515,7 +515,79 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                                         </div>
                                         <div className="border-t border-white/10 pt-4">
                                             <span className="text-green-400 font-bold text-[10px] uppercase tracking-wider block mb-1">Génération ({selectedTest.model_name})</span>
-                                            {selectedTest.raw_metadata?.response || <span className="italic text-zinc-600">Texte tronqué en base de données pour préserver la mémoire. Seules les métriques de timing ont été conservées.</span>}
+                                            {(() => {
+                                                const meta = selectedTest.raw_metadata;
+                                                const outputs = meta?.outputs || meta?.response || meta?.generation;
+                                                if (!outputs) return <span className="italic text-zinc-600">Aucun résultat d'inférence en base pour ce test.</span>;
+
+                                                // If outputs is a string, try to parse it if it looks like JSON
+                                                let data = outputs;
+                                                if (typeof outputs === 'string' && (outputs.trim().startsWith('{') || outputs.trim().startsWith('['))) {
+                                                    try { data = JSON.parse(outputs); } catch (e) { }
+                                                }
+
+                                                // If it's the structured 'outputs' object from recent benchmarks
+                                                if (typeof data === 'object' && data !== null) {
+                                                    const entries = Object.entries(data);
+                                                    if (entries.length > 0) {
+                                                        return (
+                                                            <div className="mt-2 space-y-4">
+                                                                {entries.map(([key, value]) => {
+                                                                    let parsedValue = value;
+                                                                    if (typeof value === 'string') {
+                                                                        try { parsedValue = JSON.parse(value); } catch (e) { }
+                                                                    }
+
+                                                                    // Check for Quiz/Flashcard arrays
+                                                                    const isArray = Array.isArray(parsedValue);
+                                                                    const items = isArray ? parsedValue : [];
+
+                                                                    return (
+                                                                        <div key={key} className="bg-black/50 p-4 rounded-xl border border-white/10 shadow-inner">
+                                                                            <h5 className="text-primary text-[10px] uppercase font-bold mb-3 flex items-center gap-2">
+                                                                                <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+                                                                                {key}
+                                                                            </h5>
+
+                                                                            <div className="text-zinc-300 text-[11px] leading-relaxed">
+                                                                                {isArray && items.length > 0 && (items[0].question || items[0].front || items[0].intitule) ? (
+                                                                                    <div className="space-y-3">
+                                                                                        {items.map((item: any, idx: number) => (
+                                                                                            <div key={idx} className="bg-white/5 p-3 rounded-lg border border-white/5">
+                                                                                                <div className="font-bold text-white mb-1">
+                                                                                                    {idx + 1}. {item.intitule || item.question || item.front}
+                                                                                                </div>
+                                                                                                {item.propositions && (
+                                                                                                    <div className="pl-4 mt-2 grid grid-cols-1 gap-1">
+                                                                                                        {item.propositions.map((p: string, pi: number) => (
+                                                                                                            <div key={pi} className={clsx("px-2 py-1 rounded border text-[10px]", item.reponses?.includes(p) ? "bg-green-500/20 border-green-500/30 text-green-400" : "bg-white/5 border-transparent opacity-60")}>
+                                                                                                                {p}
+                                                                                                            </div>
+                                                                                                        ))}
+                                                                                                    </div>
+                                                                                                )}
+                                                                                                {(item.back || item.answer || item.explication) && (
+                                                                                                    <div className="mt-2 text-primary/80 italic text-[10px] border-l border-primary/30 pl-3">
+                                                                                                        {item.back || item.answer || item.explication}
+                                                                                                    </div>
+                                                                                                )}
+                                                                                            </div>
+                                                                                        ))}
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="whitespace-pre-wrap">{typeof parsedValue === 'object' ? JSON.stringify(parsedValue, null, 2) : String(value)}</div>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        );
+                                                    }
+                                                }
+
+                                                return <div className="whitespace-pre-wrap">{String(outputs)}</div>;
+                                            })()}
                                         </div>
                                     </div>
 

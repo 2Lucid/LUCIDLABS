@@ -29,8 +29,8 @@ export function TaskPreviewPanel({ taskType, example }: TaskPreviewPanelProps) {
                         {conversation.slice(-4).map((msg: any, i: number) => (
                             <div key={i} className={clsx(
                                 "max-w-[85%] rounded-2xl p-4 flex flex-col gap-1 text-sm animate-in slide-in-from-bottom-2 fade-in duration-300",
-                                msg.role === 'user' 
-                                    ? "ml-auto bg-cyan-500/20 text-cyan-50 rounded-br-none border border-cyan-500/30" 
+                                msg.role === 'user'
+                                    ? "ml-auto bg-cyan-500/20 text-cyan-50 rounded-br-none border border-cyan-500/30"
                                     : "mr-auto bg-white/10 text-white rounded-bl-none border border-white/10"
                             )}>
                                 <span className={clsx("text-xs font-bold uppercase tracking-wider", msg.role === 'user' ? "text-cyan-300" : "text-white/50")}>
@@ -44,58 +44,62 @@ export function TaskPreviewPanel({ taskType, example }: TaskPreviewPanelProps) {
             }
 
             case 'quiz': {
-                const question = example.questions?.[0];
-                if (!question) return null;
+                const questions = example.questions || [];
+                if (questions.length === 0) return null;
                 return (
-                    <div className="w-full space-y-4 animate-in fade-in zoom-in-95 duration-500">
-                        <div className="bg-emerald-500/10 border border-emerald-500/20 p-5 rounded-2xl">
-                            <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2 block">Question 1/10</span>
-                            <h4 className="text-lg font-medium text-white mb-4">{question.intitule}</h4>
-                            <div className="space-y-2">
-                                {question.propositions.map((prop: string, i: number) => {
-                                    const isCorrect = question.reponses.includes(prop);
-                                    return (
-                                        <div key={i} className={clsx(
-                                            "p-3 rounded-xl border text-sm flex items-center justify-between",
-                                            isCorrect 
-                                                ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-100" 
-                                                : "bg-white/5 border-white/10 text-muted-foreground"
-                                        )}>
-                                            <span>{prop}</span>
-                                            {isCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
-                                        </div>
-                                    );
-                                })}
+                    <div className="w-full space-y-4 animate-in fade-in zoom-in-95 duration-500 pb-4">
+                        {questions.map((question: any, idx: number) => (
+                            <div key={idx} className="bg-emerald-500/10 border border-emerald-500/20 p-5 rounded-2xl">
+                                <span className="text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2 block">Question {idx + 1}/{questions.length}</span>
+                                <h4 className="text-lg font-medium text-white mb-4">{question.intitule}</h4>
+                                <div className="space-y-2">
+                                    {question.propositions.map((prop: string, i: number) => {
+                                        const isCorrect = question.reponses.includes(prop);
+                                        return (
+                                            <div key={i} className={clsx(
+                                                "p-3 rounded-xl border text-sm flex items-center justify-between",
+                                                isCorrect
+                                                    ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-100"
+                                                    : "bg-white/5 border-white/10 text-muted-foreground"
+                                            )}>
+                                                <span>{prop}</span>
+                                                {isCorrect && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                                <div className="mt-4 pt-4 border-t border-emerald-500/10 text-sm text-muted-foreground">
+                                    <span className="font-bold text-white mb-1 block italic opacity-70">💡 Explication :</span>
+                                    {question.explication}
+                                </div>
                             </div>
-                        </div>
-                        <div className="bg-white/5 p-4 rounded-xl border border-white/10 text-sm text-muted-foreground">
-                            <span className="font-bold text-white mb-1 block">💡 Explication de l'IA :</span>
-                            {question.explication}
-                        </div>
+                        ))}
                     </div>
                 );
             }
 
             case 'flashcards': {
-                const card = example.cards?.[0];
-                if (!card) return null;
+                const cards = example.cards || [];
+                if (cards.length === 0) return null;
                 return (
-                    <div className="w-full h-full flex items-center justify-center animate-in fade-in duration-500">
-                        <div className="relative w-full max-w-sm aspect-[4/3] perspective-1000 group">
-                            <div className="w-full h-full relative preserve-3d transition-transform duration-700 ease-in-out group-hover:rotate-y-180 cursor-pointer">
-                                {/* Front */}
-                                <div className="absolute inset-0 backface-hidden bg-amber-500/10 border border-amber-500/30 rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-2xl">
-                                    <span className="absolute top-4 left-4 text-amber-500 text-xs font-bold uppercase">Recto</span>
-                                    <h3 className="text-2xl font-bold text-amber-50">{card.front}</h3>
-                                    <span className="absolute bottom-4 text-amber-500/50 text-xs uppercase tracking-widest">(Survolez pour retourner)</span>
-                                </div>
-                                {/* Back */}
-                                <div className="absolute inset-0 backface-hidden rotate-y-180 bg-white/10 border border-white/20 rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-2xl">
-                                    <span className="absolute top-4 left-4 text-white/50 text-xs font-bold uppercase">Verso</span>
-                                    <p className="text-lg font-medium text-white">{card.back}</p>
+                    <div className="w-full space-y-6 animate-in fade-in duration-500 pb-10">
+                        {cards.map((card: any, idx: number) => (
+                            <div key={idx} className="relative w-full max-w-sm mx-auto aspect-[4/3] perspective-1000 group">
+                                <div className="w-full h-full relative preserve-3d transition-transform duration-700 ease-in-out group-hover:rotate-y-180 cursor-pointer">
+                                    {/* Front */}
+                                    <div className="absolute inset-0 backface-hidden bg-amber-500/10 border border-amber-500/30 rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-2xl">
+                                        <span className="absolute top-4 left-4 text-amber-500 text-[10px] font-bold uppercase">Card {idx + 1} — Recto</span>
+                                        <h3 className="text-xl font-bold text-amber-50">{card.front}</h3>
+                                        <span className="absolute bottom-4 text-amber-500/50 text-[10px] uppercase tracking-widest">(Survolez pour retourner)</span>
+                                    </div>
+                                    {/* Back */}
+                                    <div className="absolute inset-0 backface-hidden rotate-y-180 bg-zinc-900 border border-white/20 rounded-3xl p-8 flex flex-col items-center justify-center text-center shadow-2xl">
+                                        <span className="absolute top-4 left-4 text-white/50 text-[10px] font-bold uppercase">Verso</span>
+                                        <p className="text-sm font-medium text-white leading-relaxed">{card.back}</p>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
+                        ))}
                     </div>
                 );
             }
@@ -130,7 +134,7 @@ export function TaskPreviewPanel({ taskType, example }: TaskPreviewPanelProps) {
                     <div className="w-full max-h-full overflow-hidden relative fade-in duration-500 bg-pink-500/5 border border-pink-500/20 rounded-2xl p-6">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-pink-500 to-purple-500" />
                         <h3 className="text-xl font-bold text-pink-50 mb-6">{sheet.title}</h3>
-                        
+
                         <div className="space-y-6">
                             {sheet.sections?.slice(0, 2).map((section: any, i: number) => (
                                 <div key={i}>
@@ -139,7 +143,7 @@ export function TaskPreviewPanel({ taskType, example }: TaskPreviewPanelProps) {
                                 </div>
                             ))}
                         </div>
-                        
+
                         <div className="absolute bottom-0 left-0 w-full h-24 bg-gradient-to-t from-[#0f1117] to-transparent pointer-events-none rounded-b-2xl" />
                     </div>
                 );
