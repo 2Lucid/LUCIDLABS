@@ -84,7 +84,7 @@ export async function generateContexts(params: {
         result = await callGemini({
             systemPrompt: CONTEXT_SYSTEM_PROMPT,
             prompt: contextUserPrompt(subject, level, count, style),
-            model: 'gemini-2.5-pro',
+            model: 'gemini-flash-latest',
             temperature: 0.9,
             jsonMode: true,
         });
@@ -95,7 +95,7 @@ export async function generateContexts(params: {
 
     let parsed;
     try {
-        parsed = JSON.parse(result.text);
+        parsed = parseAIJson(result.text);
     } catch (e) {
         console.error("JSON Parse Error in generateContexts. Result text was:", result.text);
         throw e;
@@ -217,23 +217,26 @@ async function saveExample(example: any) {
 
 // --- Quiz Generator ---
 export async function generateQuizExample(params: {
-    subject: string;
-    level: string;
+    subject?: string;
+    level?: string;
     mode: string;
     pipelineRunId?: string;
 }) {
     const context = await getUnusedContext('quiz', params.subject, params.level);
-    if (!context) throw new Error(`No unused context for ${params.subject} ${params.level}`);
+    if (!context) throw new Error(`No unused context for ${params.subject || 'ANY'} ${params.level || 'ANY'}`);
+
+    const actualSubject = context.subject;
+    const actualLevel = context.level;
 
     const contextData = JSON.parse(context.content);
-    const topic = contextData.title || contextData.content?.substring(0, 50) || params.subject;
+    const topic = contextData.title || contextData.content?.substring(0, 50) || actualSubject;
 
-    let contextsString = `${params.subject}: ${contextData.content || JSON.stringify(contextData)}`;
-    let subjectsList = params.subject;
+    let contextsString = `${actualSubject}: ${contextData.content || JSON.stringify(contextData)}`;
+    let subjectsList = actualSubject;
     const contextIdsToMark = [context.id];
 
     if (params.mode === 'all_subjects' || params.mode === 'recall') {
-        const extraContexts = await getMixedContexts('quiz', params.level, params.subject);
+        const extraContexts = await getMixedContexts('quiz', actualLevel, actualSubject);
         for (const ec of extraContexts) {
             const data = JSON.parse(ec.content);
             contextsString += `\n\n--- Autre matière ---\n${ec.subject}: ${data.content || JSON.stringify(data)}`;
@@ -247,7 +250,7 @@ export async function generateQuizExample(params: {
         const promptStr = quizUserPrompt({
             mode: params.mode,
             date: new Date().toISOString().split('T')[0],
-            subject: params.subject,
+            subject: actualSubject,
             subjects: subjectsList,
             contexts: contextsString,
         });
@@ -255,7 +258,7 @@ export async function generateQuizExample(params: {
         const result = await callGemini({
             systemPrompt: QUIZ_SYSTEM_PROMPT,
             prompt: promptStr,
-            model: 'gemini-2.5-pro',
+            model: 'gemini-flash-latest',
             temperature: 0.7,
             jsonMode: true,
         });
@@ -264,8 +267,8 @@ export async function generateQuizExample(params: {
 
         const example = await saveExample({
             task_type: 'quiz',
-            subject: params.subject,
-            level: params.level,
+            subject: actualSubject,
+            level: actualLevel,
             mode: params.mode,
             topic,
             context_id: context.id,
@@ -277,7 +280,7 @@ export async function generateQuizExample(params: {
             pipeline_run_id: params.pipelineRunId || null,
         });
 
-        const combo = { task_type: 'quiz', subject: params.subject, level: params.level, mode: params.mode, topic, example_id: example.id };
+        const combo = { task_type: 'quiz', subject: actualSubject, level: actualLevel, mode: params.mode, topic, example_id: example.id };
         await tryRegisterCombo(combo);
         return { example, tokens: result.tokens };
     } catch (e) {
@@ -290,29 +293,32 @@ export async function generateQuizExample(params: {
 
 // --- Homework Generator ---
 export async function generateHomeworkExample(params: {
-    subject: string;
-    level: string;
+    subject?: string;
+    level?: string;
     pipelineRunId?: string;
 }) {
     const context = await getUnusedContext('homework', params.subject, params.level);
-    if (!context) throw new Error(`No unused context for ${params.subject} ${params.level}`);
+    if (!context) throw new Error(`No unused context for ${params.subject || 'ANY'} ${params.level || 'ANY'}`);
+
+    const actualSubject = context.subject;
+    const actualLevel = context.level;
 
     const contextData = JSON.parse(context.content);
-    const topic = contextData.homework || contextData.title || params.subject;
+    const topic = contextData.homework || contextData.title || actualSubject;
 
     try {
         const promptStr = homeworkUserPrompt({
-            subject: params.subject,
-            level: params.level,
+            subject: actualSubject,
+            level: actualLevel,
             date: contextData.date || new Date().toISOString().split('T')[0],
             homeworkContent: contextData.homework || contextData.content || JSON.stringify(contextData),
         });
 
-        const sysPrompt = homeworkSystemPrompt(params.level);
+        const sysPrompt = homeworkSystemPrompt(actualLevel);
         const result = await callGemini({
             systemPrompt: sysPrompt,
             prompt: promptStr,
-            model: 'gemini-2.5-pro',
+            model: 'gemini-flash-latest',
             temperature: 0.7,
             jsonMode: true,
         });
@@ -321,8 +327,8 @@ export async function generateHomeworkExample(params: {
 
         const example = await saveExample({
             task_type: 'homework',
-            subject: params.subject,
-            level: params.level,
+            subject: actualSubject,
+            level: actualLevel,
             mode: '',
             topic,
             context_id: context.id,
@@ -334,7 +340,7 @@ export async function generateHomeworkExample(params: {
             pipeline_run_id: params.pipelineRunId || null,
         });
 
-        await tryRegisterCombo({ task_type: 'homework', subject: params.subject, level: params.level, mode: '', topic, example_id: example.id });
+        await tryRegisterCombo({ task_type: 'homework', subject: actualSubject, level: actualLevel, mode: '', topic, example_id: example.id });
         return { example, tokens: result.tokens };
     } catch (e) {
         await revertContextUse('homework', context.id);
@@ -344,30 +350,33 @@ export async function generateHomeworkExample(params: {
 
 // --- Flashcard Generator ---
 export async function generateFlashcardExample(params: {
-    subject: string;
-    level: string;
+    subject?: string;
+    level?: string;
     mode: string;
     pipelineRunId?: string;
 }) {
     const context = await getUnusedContext('flashcards', params.subject, params.level);
-    if (!context) throw new Error(`No unused context for ${params.subject} ${params.level}`);
+    if (!context) throw new Error(`No unused context for ${params.subject || 'ANY'} ${params.level || 'ANY'}`);
+
+    const actualSubject = context.subject;
+    const actualLevel = context.level;
 
     const contextData = JSON.parse(context.content);
-    const topic = contextData.title || params.subject;
+    const topic = contextData.title || actualSubject;
 
     try {
         const promptStr = flashcardsUserPrompt({
-            subject: params.subject,
-            level: params.level,
+            subject: actualSubject,
+            level: actualLevel,
             mode: params.mode,
             context: contextData.content || JSON.stringify(contextData),
         });
 
-        const sysPrompt = flashcardsSystemPrompt(params.level);
+        const sysPrompt = flashcardsSystemPrompt(actualLevel);
         const result = await callGemini({
             systemPrompt: sysPrompt,
             prompt: promptStr,
-            model: 'gemini-2.5-flash',
+            model: 'gemini-flash-latest',
             temperature: 0.7,
             jsonMode: true,
         });
@@ -376,8 +385,8 @@ export async function generateFlashcardExample(params: {
 
         const example = await saveExample({
             task_type: 'flashcards',
-            subject: params.subject,
-            level: params.level,
+            subject: actualSubject,
+            level: actualLevel,
             mode: params.mode,
             topic,
             context_id: context.id,
@@ -389,7 +398,7 @@ export async function generateFlashcardExample(params: {
             pipeline_run_id: params.pipelineRunId || null,
         });
 
-        await tryRegisterCombo({ task_type: 'flashcards', subject: params.subject, level: params.level, mode: params.mode, topic, example_id: example.id });
+        await tryRegisterCombo({ task_type: 'flashcards', subject: actualSubject, level: actualLevel, mode: params.mode, topic, example_id: example.id });
         return { example, tokens: result.tokens };
     } catch (e) {
         await revertContextUse('flashcards', context.id);
@@ -399,30 +408,33 @@ export async function generateFlashcardExample(params: {
 
 // --- Revision Sheet Generator ---
 export async function generateRevisionExample(params: {
-    subject: string;
-    level: string;
+    subject?: string;
+    level?: string;
     length: string;
     pipelineRunId?: string;
 }) {
     const context = await getUnusedContext('revision', params.subject, params.level);
-    if (!context) throw new Error(`No unused context for ${params.subject} ${params.level}`);
+    if (!context) throw new Error(`No unused context for ${params.subject || 'ANY'} ${params.level || 'ANY'}`);
+
+    const actualSubject = context.subject;
+    const actualLevel = context.level;
 
     const contextData = JSON.parse(context.content);
-    const topic = contextData.title || params.subject;
+    const topic = contextData.title || actualSubject;
 
     try {
         const promptStr = revisionUserPrompt({
             length: params.length,
-            subject: params.subject,
-            level: params.level,
+            subject: actualSubject,
+            level: actualLevel,
             context: contextData.content || JSON.stringify(contextData),
         });
 
-        const sysPrompt = revisionSystemPrompt(params.level);
+        const sysPrompt = revisionSystemPrompt(actualLevel);
         const result = await callGemini({
             systemPrompt: sysPrompt,
             prompt: promptStr,
-            model: 'gemini-2.5-flash',
+            model: 'gemini-flash-latest',
             temperature: 0.7,
             jsonMode: true,
         });
@@ -431,8 +443,8 @@ export async function generateRevisionExample(params: {
 
         const example = await saveExample({
             task_type: 'revision',
-            subject: params.subject,
-            level: params.level,
+            subject: actualSubject,
+            level: actualLevel,
             mode: params.length,
             topic,
             context_id: context.id,
@@ -444,7 +456,7 @@ export async function generateRevisionExample(params: {
             pipeline_run_id: params.pipelineRunId || null,
         });
 
-        await tryRegisterCombo({ task_type: 'revision', subject: params.subject, level: params.level, mode: params.length, topic, example_id: example.id });
+        await tryRegisterCombo({ task_type: 'revision', subject: actualSubject, level: actualLevel, mode: params.length, topic, example_id: example.id });
         return { example, tokens: result.tokens };
     } catch (e) {
         await revertContextUse('revision', context.id);
@@ -452,21 +464,23 @@ export async function generateRevisionExample(params: {
     }
 }
 
-// --- Tutor Socratic Generator (Multi-turn) ---
 export async function generateTutorExample(params: {
-    subject: string;
-    level: string;
+    subject?: string;
+    level?: string;
     pipelineRunId?: string;
 }) {
     const context = await getUnusedContext('tutor', params.subject, params.level);
-    if (!context) throw new Error(`No unused context for ${params.subject} ${params.level}`);
+    if (!context) throw new Error(`No unused context for ${params.subject || 'ANY'} ${params.level || 'ANY'}`);
+
+    const actualSubject = context.subject;
+    const actualLevel = context.level;
 
     const contextData = JSON.parse(context.content);
-    const topic = contextData.title || params.subject;
+    const topic = contextData.title || actualSubject;
 
     try {
-        const tutorSys = tutorSystemPrompt(params.subject, params.level);
-        const studentSys = tutorStudentSystemPrompt(params.subject, params.level);
+        const tutorSys = tutorSystemPrompt(actualSubject, actualLevel);
+        const studentSys = tutorStudentSystemPrompt(actualSubject, actualLevel);
         const contextText = contextData.content || JSON.stringify(contextData);
         const conversation: Array<{ role: string; content: string }> = [];
 
@@ -474,7 +488,7 @@ export async function generateTutorExample(params: {
         const studentT1 = await callGemini({
             systemPrompt: studentSys,
             prompt: `Contexte du cours : ${contextText}\n\nPose une question hésitante sur ce cours, avec une erreur typique de ton niveau.`,
-            model: 'gemini-2.5-pro',
+            model: 'gemini-flash-latest',
             temperature: 0.9,
             jsonMode: false,
         });
@@ -484,7 +498,7 @@ export async function generateTutorExample(params: {
         const tutorT2 = await callGemini({
             systemPrompt: tutorSys,
             messages: [{ role: 'user', content: studentT1.text }],
-            model: 'gemini-2.5-pro',
+            model: 'gemini-flash-latest',
             temperature: 0.7,
             jsonMode: false,
         });
@@ -498,7 +512,7 @@ export async function generateTutorExample(params: {
                 { role: 'user', content: tutorT2.text },
             ],
             prompt: 'Corrige partiellement ton erreur grâce à la question du tuteur.',
-            model: 'gemini-2.5-pro',
+            model: 'gemini-flash-latest',
             temperature: 0.9,
             jsonMode: false,
         });
@@ -512,7 +526,7 @@ export async function generateTutorExample(params: {
                 { role: 'model', content: tutorT2.text },
                 { role: 'user', content: studentT3.text },
             ],
-            model: 'gemini-2.5-pro',
+            model: 'gemini-flash-latest',
             temperature: 0.7,
             jsonMode: false,
         });
@@ -522,8 +536,8 @@ export async function generateTutorExample(params: {
 
         const example = await saveExample({
             task_type: 'tutor',
-            subject: params.subject,
-            level: params.level,
+            subject: actualSubject,
+            level: actualLevel,
             mode: '',
             topic,
             context_id: context.id,
@@ -531,11 +545,11 @@ export async function generateTutorExample(params: {
             system_prompt: tutorSys,
             user_prompt: conversation[0].content,
             tokens_used: totalTokens,
-            model_used: 'gemini-2.5-pro',
+            model_used: 'gemini-flash-latest',
             pipeline_run_id: params.pipelineRunId || null,
         });
 
-        await tryRegisterCombo({ task_type: 'tutor', subject: params.subject, level: params.level, mode: '', topic, example_id: example.id });
+        await tryRegisterCombo({ task_type: 'tutor', subject: actualSubject, level: actualLevel, mode: '', topic, example_id: example.id });
         return { example, tokens: { total: totalTokens, prompt: 0, response: 0 } };
     } catch (e) {
         await revertContextUse('tutor', context.id);
@@ -555,7 +569,7 @@ async function _performJudgment(lockedEx: any) {
         const result = await callGemini({
             systemPrompt: sysPrompt,
             prompt,
-            model: 'gemini-2.5-pro',
+            model: 'gemini-flash-latest',
             temperature: 0.3,
         });
 
@@ -707,7 +721,7 @@ interface AutopilotCycleResult {
  * 3. Otherwise, pick the most "behind" task type and generate a batch
  * 4. Auto-generate contexts if running low
  */
-export async function runAutopilotCycle(concurrency: number = 5): Promise<AutopilotCycleResult> {
+export async function runAutopilotCycle(concurrency: number = 5, ignoreTargets: boolean = false, allowedTasks?: string[]): Promise<AutopilotCycleResult> {
     const errors: string[] = [];
     let generated = 0, judged = 0, goldCount = 0, contextsMade = 0, tokensUsed = 0;
 
@@ -725,6 +739,10 @@ export async function runAutopilotCycle(concurrency: number = 5): Promise<Autopi
         homework: DATASET_TARGETS.homework.count,
     };
 
+    const activeTargets = allowedTasks && allowedTasks.length > 0 
+        ? Object.fromEntries(Object.entries(targets).filter(([k]) => allowedTasks.includes(k)))
+        : targets;
+
     const resultStats = {
         total: stats.total_examples || 0,
         gold: stats.gold_examples || 0,
@@ -733,7 +751,7 @@ export async function runAutopilotCycle(concurrency: number = 5): Promise<Autopi
     };
 
     // Check if we're done
-    if ((stats.gold_examples || 0) >= TOTAL_TARGET) {
+    if (!ignoreTargets && (stats.gold_examples || 0) >= TOTAL_TARGET) {
         return { phase: 'done', taskType: '-', generated: 0, judged: 0, gold: 0, contextsMade: 0, tokensUsed: 0, errors: [], stats: resultStats };
     }
 
@@ -757,16 +775,22 @@ export async function runAutopilotCycle(concurrency: number = 5): Promise<Autopi
     }
 
     // 3. PRIORITIZE — find the task type most "behind" its GOLD target
-    let bestTask = 'quiz';
+    let bestTask = Object.keys(activeTargets)[0] || 'quiz';
     let bestDeficit = -Infinity;
     const skippedTasks: string[] = [];
-    for (const [task, target] of Object.entries(targets)) {
+    for (const [task, target] of Object.entries(activeTargets)) {
         const goldForTask = currentByTask[task]?.gold || 0;
-        if (goldForTask >= target) {
+        if (!ignoreTargets && goldForTask >= target) {
             skippedTasks.push(task);
             continue; // Task completed — skip it entirely
         }
-        const deficit = (target - goldForTask) / target; // 0..1, higher = more behind
+        
+        let deficit = (target - goldForTask) / target; // 0..1, higher = more behind
+        // If ignoreTargets acts dynamically and it exceeded target, base selection on least amount to keep balance
+        if (ignoreTargets && goldForTask >= target) {
+            deficit = -goldForTask;
+        }
+
         if (deficit > bestDeficit) {
             bestDeficit = deficit;
             bestTask = task;
@@ -774,7 +798,7 @@ export async function runAutopilotCycle(concurrency: number = 5): Promise<Autopi
     }
 
     // If all tasks are complete, just judge remaining
-    if (bestDeficit <= 0) {
+    if (!ignoreTargets && bestDeficit <= 0) {
         if (unjudged > 0) {
             const judgeResults = await _autopilotJudgeBatch(unjudged, concurrency);
             return { phase: 'judge', taskType: 'judge', generated: 0, judged: judgeResults.judged, gold: judgeResults.gold, contextsMade: 0, tokensUsed: judgeResults.tokens, errors: judgeResults.errors, stats: resultStats };
@@ -783,10 +807,17 @@ export async function runAutopilotCycle(concurrency: number = 5): Promise<Autopi
     }
 
     // 4. CONTEXT CHECK — generate contexts if low
+    let usedColumn = 'is_used';
+    if (bestTask === 'quiz') usedColumn = 'used_quiz';
+    else if (bestTask === 'homework') usedColumn = 'used_homework';
+    else if (bestTask === 'flashcards') usedColumn = 'used_flashcards';
+    else if (bestTask === 'revision') usedColumn = 'used_revision';
+    else if (bestTask === 'tutor') usedColumn = 'used_tutor';
+
     const { count: unusedCtxCount } = await supabaseAdmin
         .from('contexts')
         .select('id', { count: 'exact', head: true })
-        .eq('is_used', false);
+        .eq(usedColumn, false);
 
     if ((unusedCtxCount || 0) < 50) {
         // Generate contexts for a random level/subject combo
@@ -812,10 +843,8 @@ export async function runAutopilotCycle(concurrency: number = 5): Promise<Autopi
     const generatePromises: Promise<any>[] = [];
 
     for (let i = 0; i < batchSize; i++) {
-        const levels = [...STUDENT_LEVELS];
-        const level = levels[Math.floor(Math.random() * levels.length)];
-        const subjects = SUBJECTS_BY_LEVEL[level] || [];
-        const subject = subjects[Math.floor(Math.random() * subjects.length)];
+        const level = undefined;
+        const subject = undefined;
 
         let mode = '';
         if (bestTask === 'quiz') mode = QUIZ_MODES[Math.floor(Math.random() * QUIZ_MODES.length)];

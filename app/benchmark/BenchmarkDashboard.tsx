@@ -7,11 +7,12 @@ import {
     Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
     PieChart, Pie, Cell, AreaChart, Area, ScatterChart, Scatter, ZAxis
 } from 'recharts';
-import { Activity, Battery, Cpu, Smartphone, Target, Zap, Clock, TrendingDown, Layers, Box, Fingerprint, PieChart as PieIcon, LineChart as LineIcon, Scale, CheckCircle, X, Bot } from "lucide-react";
+import { Activity, Battery, Cpu, Smartphone, Target, Zap, Clock, TrendingDown, Layers, Box, Fingerprint, PieChart as PieIcon, LineChart as LineIcon, Scale, CheckCircle, X, Bot, AlertTriangle, RefreshCw } from "lucide-react";
 import { StatsCard } from "@/components/StatsCard";
-import { evaluateGeneration } from "./autopilot";
+import { evaluateGeneration, saveScoreToSupabase, resetAllJudgeScores } from "./autopilot";
 import BarChart3DViewer from "@/components/benchmark/BarChart3D";
 import TokenSimulator from "@/components/benchmark/TokenSimulator";
+import { createClient } from "@supabase/supabase-js";
 import { clsx } from "clsx";
 
 interface BenchmarkData {
@@ -33,13 +34,23 @@ interface BenchmarkData {
     created_at: string;
     load_time_ms: number;
     single_time_to_first_token_ms: number;
+    ai_judged: boolean;
+    auto_judge_score: number;
+    auto_judge_reasoning: string;
+    manual_judge_score: number;
     raw_metadata: any;
 }
 
 const COLORS = ['#06B6D4', '#8B5CF6', '#10B981', '#F59E0B', '#F43F5E', '#3B82F6'];
 
 export default function BenchmarkDashboard({ initialData }: { initialData: any[] }) {
-    const benchmarks = initialData as BenchmarkData[];
+    // Client spécifiquement branché sur la base de données de BENCHMARK
+    const benchmarkSupabase = useMemo(() => createClient(
+        process.env.NEXT_PUBLIC_BENCHMARK_SUPABASE_URL!,
+        process.env.NEXT_PUBLIC_BENCHMARK_SUPABASE_ANON_KEY!
+    ), []);
+
+    const [benchmarks, setBenchmarks] = useState<BenchmarkData[]>(initialData as BenchmarkData[]);
 
     const [selectedDevice, setSelectedDevice] = useState<string>('all');
     const [selectedModel, setSelectedModel] = useState<string>('all');
@@ -50,18 +61,66 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
     const [judgeScore, setJudgeScore] = useState<number>(50);
     const [isJudged, setIsJudged] = useState(false);
     const [isAutopilotLoading, setIsAutopilotLoading] = useState(false);
+    const [isSaving, setIsSaving] = useState(false);
+    const [judgeReasoning, setJudgeReasoning] = useState<string>("");
+
+    const [batchStatus, setBatchStatus] = useState<{ total: number, current: number, isRunning: boolean } | null>(null);
 
     // Reset judge panel when opening a new test
     useEffect(() => {
-        setJudgeScore(50);
-        setIsJudged(false);
+        if (selectedTest) {
+            const savedScore = selectedTest.manual_judge_score || selectedTest.auto_judge_score || 50;
+            const savedReasoning = selectedTest.auto_judge_reasoning || "";
+            setJudgeScore(savedScore);
+            setJudgeReasoning(savedReasoning);
+            setIsJudged(!!selectedTest.ai_judged);
+        } else {
+            setJudgeScore(50);
+            setJudgeReasoning("");
+            setIsJudged(false);
+        }
         setIsAutopilotLoading(false);
+        setIsSaving(false);
     }, [selectedTest]);
+
+    const handleSaveScore = async () => {
+        if (!selectedTest) return;
+        setIsSaving(true);
+        // Pertinence will count heavily (70%), taking speed into account for the rest (30%)
+        const speedScore = Math.min(100, (selectedTest.single_tokens_per_sec || 0) * 2);
+        const newGlobalScore = Math.floor(judgeScore * 0.7 + speedScore * 0.3);
+
+        const newMetaData = {
+            ...(selectedTest.raw_metadata || {}),
+            ai_judged: true,
+            manual_judge_score: judgeScore,
+            auto_judge_reasoning: judgeReasoning
+        };
+
+        const { error } = await saveScoreToSupabase(selectedTest.id, newGlobalScore, newMetaData);
+
+        if (!error) {
+            const updated = {
+                ...selectedTest,
+                score_global: newGlobalScore,
+                ai_judged: true,
+                manual_judge_score: judgeScore,
+                auto_judge_reasoning: judgeReasoning,
+                raw_metadata: newMetaData
+            };
+            setSelectedTest(updated);
+            setBenchmarks(prev => prev.map(b => b.id === selectedTest.id ? updated : b));
+        } else {
+            console.error("Save error:", error);
+            alert("Erreur lors de la sauvegarde.");
+        }
+        setIsSaving(false);
+    };
 
     const handleAutopilot = async () => {
         if (!selectedTest) return;
         setIsAutopilotLoading(true);
-        const promptText = selectedTest.raw_metadata?.prompt || "Évalue globalement la qualité de ces différents formats d'enseignement générés.";
+        const promptText = selectedTest.raw_metadata?.prompt || "Consigne implicite : Ton rôle était de générer du matériel pédagogique pertinent et correct (comme des quiz, flashcards ou tuteurs) à partir d'un contexte de connaissances.";
 
         let genText = "Aucune génération...";
         if (selectedTest.raw_metadata?.outputs) {
@@ -70,14 +129,95 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
             genText = selectedTest.raw_metadata.response;
         }
 
-        const score = await evaluateGeneration(promptText, genText);
-        if (score !== null) {
-            setJudgeScore(score);
+        const result = await evaluateGeneration(promptText, genText);
+        if (result !== null) {
+            setJudgeScore(result.score);
+            setJudgeReasoning(result.reasoning);
             setIsJudged(true);
         } else {
             alert("L'évaluation Autopilot a échoué. Vérifiez la connexion ou l'API Key Gemini.");
         }
         setIsAutopilotLoading(false);
+    };
+
+    const handleBatchAnalyze = async () => {
+        const unjudged = benchmarks.filter(b => !b.ai_judged);
+        if (unjudged.length === 0) return alert("✅ Tous les tests ont déjà été analysés par l'IA !");
+
+        console.log(`[Batch] 🚀 Démarrage de l'analyse de ${unjudged.length} tests non-jugés (${benchmarks.length - unjudged.length} déjà jugés, skippés)`);
+        setBatchStatus({ total: unjudged.length, current: 0, isRunning: true });
+
+        let successCount = 0;
+        let failCount = 0;
+
+        for (let i = 0; i < unjudged.length; i++) {
+            const b = unjudged[i];
+            const promptText = b.raw_metadata?.prompt || "Consigne implicite : Ton rôle était de générer du matériel pédagogique pertinent et correct (comme des quiz, flashcards ou tuteurs) à partir d'un contexte de connaissances.";
+
+            let genText = "Aucune génération...";
+            if (b.raw_metadata?.outputs) {
+                genText = JSON.stringify(b.raw_metadata.outputs, null, 2);
+            } else if (b.raw_metadata?.response) {
+                genText = b.raw_metadata.response;
+            }
+
+            const result = await evaluateGeneration(promptText, genText);
+
+            if (result !== null) {
+                const speedScore = Math.min(100, (b.single_tokens_per_sec || 0) * 2);
+                const newGlobalScore = Math.floor(result.score * 0.7 + speedScore * 0.3);
+                const newMetaData = {
+                    ...(b.raw_metadata || {}),
+                    ai_judged: true,
+                    auto_judge_score: result.score,
+                    auto_judge_reasoning: result.reasoning
+                };
+
+                const { error } = await saveScoreToSupabase(b.id, newGlobalScore, newMetaData);
+
+                if (!error) {
+                    console.log(`[Batch] ✅ ${i + 1}/${unjudged.length} — ${b.model_name} — Score IA: ${result.score}/100 → Global: ${newGlobalScore}`);
+                    const updatedItem = {
+                        ...b,
+                        score_global: newGlobalScore,
+                        ai_judged: true,
+                        auto_judge_score: result.score,
+                        auto_judge_reasoning: result.reasoning,
+                        raw_metadata: newMetaData
+                    };
+                    setBenchmarks(prev => prev.map(item => item.id === b.id ? updatedItem : item));
+                    successCount++;
+                } else {
+                    console.error(`[Batch] ❌ ${i + 1}/${unjudged.length} — ${b.model_name} — Erreur Supabase:`, error.message);
+                    failCount++;
+                }
+            } else {
+                console.warn(`[Batch] ⚠️ ${i + 1}/${unjudged.length} — ${b.model_name} — Gemini n'a pas retourné de score`);
+                failCount++;
+            }
+
+            setBatchStatus(prev => prev ? { ...prev, current: i + 1 } : null);
+
+            // Wait 1.5 seconds between each call to avoid Gemini Rate Limits
+            await new Promise(r => setTimeout(r, 1500));
+        }
+
+        console.log(`[Batch] 🏁 Terminé ! ${successCount} réussites, ${failCount} échecs`);
+        setBatchStatus(prev => prev ? { ...prev, isRunning: false } : null);
+        alert(`✅ Analyse terminée !\n${successCount} tests notés avec succès\n${failCount} échecs`);
+    };
+
+    const handleResetScores = async () => {
+        if (!confirm("Voulez-vous vraiment supprimer TOUTES les notes IA et réinitialiser les scores ?")) return;
+        setIsSaving(true);
+        const res = await resetAllJudgeScores();
+        setIsSaving(false);
+        if (res.error) {
+            alert("Erreur lors de la réinitialisation.");
+        } else {
+            alert("Notes supprimées avec succès ! La page va se recharger.");
+            window.location.reload();
+        }
     };
 
     // Extract unique filters
@@ -207,23 +347,50 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                     <p className="text-muted-foreground mt-1 text-sm">Dashboard de télémétrie avancée, projection de finetuning et performances matérielles</p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3">
-                    <select
-                        value={selectedDevice}
-                        onChange={(e) => setSelectedDevice(e.target.value)}
-                        className="bg-white/5 border border-white/10 text-white text-sm rounded-xl px-4 py-2 hover:bg-white/10 focus:outline-none transition-colors"
-                    >
-                        <option value="all" className="bg-zinc-900">Tous les appareils</option>
-                        {devices.map(d => <option key={d} value={d} className="bg-zinc-900">{d}</option>)}
-                    </select>
-                    <select
-                        value={selectedModel}
-                        onChange={(e) => setSelectedModel(e.target.value)}
-                        className="bg-white/5 border border-white/10 text-white text-sm rounded-xl px-4 py-2 hover:bg-white/10 focus:outline-none transition-colors"
-                    >
-                        <option value="all" className="bg-zinc-900">Tous les modèles</option>
-                        {models.map(m => <option key={m} value={m} className="bg-zinc-900">{m}</option>)}
-                    </select>
+                <div className="flex flex-col md:flex-row gap-4 mb-4 items-center justify-between">
+                    <div className="flex gap-4">
+                        <select
+                            value={selectedDevice}
+                            onChange={(e) => setSelectedDevice(e.target.value)}
+                            className="bg-zinc-900 border border-white/10 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary transition-colors"
+                        >
+                            <option value="all">Tous les Appareils</option>
+                            {devices.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                        <select
+                            value={selectedModel}
+                            onChange={(e) => setSelectedModel(e.target.value)}
+                            className="bg-zinc-900 border border-white/10 text-white rounded-lg px-4 py-2 text-sm focus:outline-none focus:border-primary transition-colors"
+                        >
+                            <option value="all">Tous les Modèles</option>
+                            {models.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                    </div>
+
+                    {/* Batch Analyze Button */}
+                    <div className="flex items-center gap-4">
+                        {batchStatus && (batchStatus.isRunning || batchStatus.current > 0) && (
+                            <span className="text-xs font-mono text-primary animate-pulse">
+                                Analyse en cours : {batchStatus.current} / {batchStatus.total}
+                            </span>
+                        )}
+                        <button
+                            onClick={handleBatchAnalyze}
+                            disabled={batchStatus?.isRunning}
+                            className="bg-primary/20 hover:bg-primary/40 text-primary border border-primary/30 py-2 px-4 rounded-lg font-bold text-xs uppercase tracking-wider flex items-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            <Bot className="w-4 h-4" />
+                            {batchStatus?.isRunning ? "Analyse Multi-Tests..." : "Analyse IA de Masse"}
+                        </button>
+                        <button
+                            onClick={handleResetScores}
+                            disabled={isSaving || batchStatus?.isRunning}
+                            className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 py-2 px-3 rounded-lg font-bold text-xs tracking-wider transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Supprimer toutes les notes et explications IA"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
                 </div>
             </motion.div>
 
@@ -402,6 +569,7 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                                     <th className="p-3 font-medium flex items-center gap-1"><Battery className="w-3 h-3" /> État</th>
                                     <th className="p-3 font-medium text-right">TTFT</th>
                                     <th className="p-3 font-medium text-right">Tokens/sec</th>
+                                    <th className="p-3 font-medium text-right">Pertinence</th>
                                 </tr>
                             </thead>
                             <tbody className="text-sm text-white">
@@ -425,6 +593,15 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                                         <td className="p-3 font-mono text-[11px] text-green-400">{parseBattery(b.raw_metadata)}</td>
                                         <td className="p-3 text-right font-mono text-[11px] text-amber-400">{b.single_time_to_first_token_ms ? `${b.single_time_to_first_token_ms}ms` : 'N/A'}</td>
                                         <td className="p-3 text-right font-mono text-cyan-400 font-bold">{b.single_tokens_per_sec?.toFixed(1) || 'N/A'}</td>
+                                        <td className="p-3 text-right font-bold text-xs">
+                                            {b.ai_judged ? (
+                                                <span className="bg-emerald-400/20 text-emerald-400 px-2 py-1 rounded border border-emerald-400/30">
+                                                    {b.manual_judge_score || b.auto_judge_score}/100
+                                                </span>
+                                            ) : (
+                                                <span className="text-zinc-600 font-normal">--</span>
+                                            )}
+                                        </td>
                                     </tr>
                                 ))}
                             </tbody>
@@ -626,14 +803,33 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                                     {/* Judge Interaction */}
                                     <div className="mt-auto">
                                         {isJudged ? (
-                                            <motion.div
-                                                initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
-                                                className="flex flex-col items-center justify-center p-4 bg-green-500/10 text-green-400 rounded-xl border border-green-500/20"
-                                            >
-                                                <CheckCircle className="w-8 h-8 mb-2" />
-                                                <span className="font-bold text-2xl">{judgeScore} / 100</span>
-                                                <span className="text-xs uppercase tracking-wider mt-1 text-green-400/80">Pertinence Enregistrée</span>
-                                            </motion.div>
+                                            <div className="space-y-4">
+                                                <motion.div
+                                                    initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+                                                    className="flex flex-col items-center justify-center p-4 bg-green-500/10 text-green-400 rounded-xl border border-green-500/20"
+                                                >
+                                                    <CheckCircle className="w-8 h-8 mb-2" />
+                                                    <span className="font-bold text-2xl">{judgeScore} / 100</span>
+                                                    <span className="text-xs uppercase tracking-wider mt-1 text-green-400/80">Pertinence Évaluée</span>
+                                                </motion.div>
+
+                                                {judgeReasoning && (
+                                                    <motion.div
+                                                        initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                                                        className="p-3 bg-white/5 border border-white/10 rounded-xl max-h-32 overflow-y-auto"
+                                                    >
+                                                        <p className="text-xs text-muted-foreground italic">&ldquo;{judgeReasoning}&rdquo;</p>
+                                                    </motion.div>
+                                                )}
+
+                                                <button
+                                                    onClick={handleSaveScore}
+                                                    disabled={isSaving}
+                                                    className="w-full py-3 bg-primary hover:bg-primary/80 text-white font-bold text-xs tracking-wider rounded-xl transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed"
+                                                >
+                                                    {isSaving ? <span className="animate-pulse">SAUVEGARDE EN COURS...</span> : "CONFIRMER ET ENREGISTRER EN BASE"}
+                                                </button>
+                                            </div>
                                         ) : (
                                             <div className="space-y-4">
                                                 <div className="flex justify-between items-end text-white font-bold px-1">
@@ -681,7 +877,6 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                     </motion.div>
                 )}
             </AnimatePresence>
-
         </motion.div>
     );
 }

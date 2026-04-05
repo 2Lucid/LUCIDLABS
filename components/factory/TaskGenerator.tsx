@@ -83,11 +83,8 @@ export function TaskGenerator({ taskType, icon, title, description, targetCount,
                     if (config.limitType === 'time' && Date.now() >= endTime) break;
                     if (config.limitType === 'count' && currentGenCount >= config.targetCount) break;
                     
-                    const level = levels[Math.floor(Math.random() * levels.length)];
-                    const subjects = SUBJECTS_BY_LEVEL[level] || [];
-                    if (subjects.length === 0) continue;
-                    
-                    const subject = subjects[Math.floor(Math.random() * subjects.length)];
+                    const level = undefined;
+                    const subject = undefined;
                     const mode = modes[Math.floor(Math.random() * modes.length)];
 
                     try {
@@ -106,7 +103,9 @@ export function TaskGenerator({ taskType, icon, title, description, targetCount,
 
                         if (!perfModeRef.current) {
                             setLatestExample(result.example.content);
-                            addLog('success', `✅ [Th${workerId}] ${title} — ${subject} (${level})${mode ? ` [${mode}]` : ''}`);
+                            const actualSubject = result.example.subject || subject || 'Auto';
+                            const actualLevel = result.example.level || level || 'Auto';
+                            addLog('success', `✅ [Th${workerId}] ${title} — ${actualSubject} (${actualLevel})${mode ? ` [${mode}]` : ''}`);
                         }
 
                         setStats(prev => ({ 
@@ -116,10 +115,12 @@ export function TaskGenerator({ taskType, icon, title, description, targetCount,
                             byTask: prev.byTask + 1
                         }));
                     } catch (e: any) {
+                        const actualSubject = subject || 'Auto';
+                        const actualLevel = level || 'Auto';
                         if (e.message?.includes('Combo already used') || e.message?.includes('No unused context')) {
-                            if (!perfModeRef.current) addLog('warn', `⏭️ [Th${workerId}] ${subject}/${level}: ${e.message.split(':')[0]}`);
+                            if (!perfModeRef.current) addLog('warn', `⏭️ [Th${workerId}] ${actualSubject}/${actualLevel}: ${e.message.split(':')[0]}`);
                         } else {
-                            if (!perfModeRef.current) addLog('error', `❌ [Th${workerId}] ${e.message}`);
+                            if (!perfModeRef.current) addLog('error', `❌ [Th${workerId}] ${e.message.split('\n')[0]}`);
                         }
                     }
                     

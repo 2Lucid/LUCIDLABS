@@ -43,6 +43,10 @@ export default function AutopilotPage() {
     const [currentPhase, setCurrentPhase] = useState<Phase>('generate');
     const [currentTask, setCurrentTask] = useState('');
     const [cycleCount, setCycleCount] = useState(0);
+    const [config, setConfig] = useState<{ limitType: 'time' | 'count' | 'infinite', durationHours: number, targetCount: number, allowedTasks: string[] }>({
+        limitType: 'infinite', durationHours: 1, targetCount: 1000,
+        allowedTasks: ['quiz', 'homework', 'flashcards', 'revision', 'tutor']
+    });
 
     const [sessionStats, setSessionStats] = useState({ generated: 0, judged: 0, gold: 0, tokens: 0 });
     const [liveStats, setLiveStats] = useState<any>(null);
@@ -65,12 +69,27 @@ export default function AutopilotPage() {
         addLog('info', '🚀 AUTOPILOT ACTIVÉ — Production automatique lancée');
 
         let cycles = 0;
+        let localGenerated = 0;
+        const endTime = config.limitType === 'time' ? Date.now() + config.durationHours * 3600 * 1000 : Infinity;
 
         while (!stopRef.current) {
+            if (config.limitType === 'time' && Date.now() >= endTime) {
+                addLog('success', "⏳ Limite de temps atteinte. Arrêt de l'Autopilot.");
+                setStatus('completed');
+                break;
+            }
+            if (config.limitType === 'count' && localGenerated >= config.targetCount) {
+                addLog('success', "🎯 Objectif de quantité atteint. Arrêt de l'Autopilot.");
+                setStatus('completed');
+                break;
+            }
+
             try {
-                const result = await runAutopilotCycle(concurrency);
+                // Pass true to bypass backend targets and inject allowed tasks
+                const result = await runAutopilotCycle(concurrency, true, config.allowedTasks);
 
                 cycles++;
+                localGenerated += result.generated;
                 setCycleCount(cycles);
                 setCurrentPhase(result.phase);
                 setCurrentTask(result.taskType);
@@ -158,12 +177,90 @@ export default function AutopilotPage() {
             </div>
 
             {/* Global Progress */}
+            <div className="glass-card p-6 mb-6">
+                <div className="flex flex-col md:flex-row justify-between items-start gap-6">
+                    <div className="flex items-end gap-6 flex-wrap">
+                        <div>
+                            <label className="text-sm text-muted-foreground font-medium mb-1 block">Mode de Génération</label>
+                            <select
+                                value={config.limitType}
+                                disabled={status === 'running'}
+                                onChange={e => setConfig(prev => ({ ...prev, limitType: e.target.value as any }))}
+                                className="bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-white/20"
+                            >
+                                <option value="infinite">Génération Continue (Ignorer l'objectif)</option>
+                                <option value="time">Par Durée Limitée</option>
+                                <option value="count">Par Quantité Cible</option>
+                            </select>
+                        </div>
+
+                        {config.limitType === 'time' && (
+                            <div>
+                                <label className="text-sm text-muted-foreground font-medium mb-1 block">Durée de l'Autopilot</label>
+                                <select
+                                    value={config.durationHours}
+                                    disabled={status === 'running'}
+                                    onChange={e => setConfig(prev => ({ ...prev, durationHours: parseFloat(e.target.value) }))}
+                                    className="bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-white/20"
+                                >
+                                    <option value={0.5}>30 Minutes</option>
+                                    <option value={1}>1 Heure</option>
+                                    <option value={2}>2 Heures</option>
+                                    <option value={4}>4 Heures</option>
+                                    <option value={8}>8 Heures</option>
+                                    <option value={24}>24 Heures</option>
+                                </select>
+                            </div>
+                        )}
+
+                        {config.limitType === 'count' && (
+                            <div>
+                                <label className="text-sm text-muted-foreground font-medium mb-1 block">Nouveaux Exemples</label>
+                                <input
+                                    type="number"
+                                    value={config.targetCount}
+                                    disabled={status === 'running'}
+                                    onChange={e => setConfig(prev => ({ ...prev, targetCount: parseInt(e.target.value) || 1 }))}
+                                    min={1} max={50000}
+                                    className="w-32 bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-white/20"
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-4 md:mt-0">
+                        <label className="text-sm text-muted-foreground font-medium mb-2 block">Tâches Autorisées</label>
+                        <div className="flex flex-wrap gap-2">
+                            {['quiz', 'homework', 'flashcards', 'revision', 'tutor'].map(task => (
+                                <button
+                                    key={task}
+                                    disabled={status === 'running'}
+                                    onClick={() => setConfig(prev => ({
+                                        ...prev,
+                                        allowedTasks: prev.allowedTasks.includes(task)
+                                            ? prev.allowedTasks.filter(t => t !== task)
+                                            : [...prev.allowedTasks, task]
+                                    }))}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider border transition-colors ${
+                                        config.allowedTasks.includes(task)
+                                            ? 'bg-orange-500/20 text-orange-400 border-orange-500/50'
+                                            : 'bg-black/40 text-muted-foreground border-white/10 opacity-50 hover:opacity-100'
+                                    }`}
+                                >
+                                    {task}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div className="glass-card p-6 border-t-4 border-t-orange-500/50">
                 <div className="flex items-center justify-between mb-4">
                     <div>
                         <p className="text-xs text-muted-foreground uppercase tracking-wider font-bold">Progression Globale — Gold Data</p>
                         <p className="text-4xl font-black text-white mt-1">
-                            {totalGold.toLocaleString()} <span className="text-base font-medium text-muted-foreground">/ {TOTAL_TARGET.toLocaleString()}</span>
+                            {totalGold.toLocaleString('en-US')} <span className="text-base font-medium text-muted-foreground">/ {TOTAL_TARGET.toLocaleString('en-US')}</span>
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -176,7 +273,7 @@ export default function AutopilotPage() {
                                         : "bg-gradient-to-r from-orange-500 to-red-500 text-white hover:from-orange-600 hover:to-red-600 hover:shadow-2xl hover:shadow-orange-500/20 active:scale-95"
                                 )}
                             >
-                                {status === 'completed' ? <><CheckCircle2 className="w-6 h-6" /> Objectif Atteint</> : <><Rocket className="w-6 h-6" /> Lancer l'Autopilot</>}
+                                {status === 'completed' ? <><CheckCircle2 className="w-6 h-6" /> Relancer</> : <><Rocket className="w-6 h-6" /> Lancer l'Autopilot</>}
                             </button>
                         ) : (
                             <button onClick={stop}

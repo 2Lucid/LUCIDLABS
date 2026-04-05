@@ -65,7 +65,8 @@ export default function ContextViewerPage() {
                 actualSubject = availableSubjects[Math.floor(Math.random() * availableSubjects.length)];
             }
             
-            await generateContexts({ level: actualLevel, subject: actualSubject, count: 5, style: "Standard" });
+            const style = Math.random() > 0.5 ? 'structured' : 'telegraphic';
+            await generateContexts({ level: actualLevel, subject: actualSubject, count: 5, style });
             await loadData();
             setShowGenModal(false);
         } catch (e) {

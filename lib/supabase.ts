@@ -41,7 +41,7 @@ async function callGeminiDirect(params: {
         systemPrompt,
         prompt,
         messages,
-        model = 'gemini-2.5-pro',
+        model = 'gemini-flash-latest',
         temperature = 0.7,
         jsonMode = true,
     } = params;
@@ -74,7 +74,7 @@ async function callGeminiDirect(params: {
         throw new Error('Either prompt or messages is required');
     }
 
-    const modelsToTry = [model, 'gemini-2.5-flash', 'gemini-2.5-pro'];
+    const modelsToTry = [model, 'gemini-flash-latest'];
     const uniqueModels = [...new Set(modelsToTry)];
 
     for (const modelName of uniqueModels) {
