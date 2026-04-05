@@ -10,6 +10,9 @@ import {
 import { Activity, Battery, Cpu, Smartphone, Target, Zap, Clock, TrendingDown, Layers, Box, Fingerprint, PieChart as PieIcon, LineChart as LineIcon, Scale, CheckCircle, X, Bot } from "lucide-react";
 import { StatsCard } from "@/components/StatsCard";
 import { evaluateGeneration } from "./autopilot";
+import BarChart3DViewer from "@/components/benchmark/BarChart3D";
+import TokenSimulator from "@/components/benchmark/TokenSimulator";
+import { clsx } from "clsx";
 
 interface BenchmarkData {
     id: string;
@@ -43,6 +46,7 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
 
     // State for Drilldown & Judge mode
     const [selectedTest, setSelectedTest] = useState<BenchmarkData | null>(null);
+    const [hoveredTest, setHoveredTest] = useState<BenchmarkData | null>(null);
     const [judgeScore, setJudgeScore] = useState<number>(50);
     const [isJudged, setIsJudged] = useState(false);
     const [isAutopilotLoading, setIsAutopilotLoading] = useState(false);
@@ -233,6 +237,7 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                 <motion.div variants={item}><StatsCard title="Résilience" value={runsCount ? (100 - Number(avgDegradation)).toFixed(1) : "0"} icon={Layers} description="Score de charge" color="primary" /></motion.div>
             </div>
 
+
             {/* Main Graphs Layout */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -243,7 +248,7 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                         Signatures des Modèles
                     </h3>
                     <p className="text-xs text-muted-foreground self-start mb-4">Analyse multidimensionnelle en étoile</p>
-                    <div className="h-[250px] w-full mt-2">
+                    <div className="h-[400px] w-full mt-2">
                         <ResponsiveContainer width="100%" height="100%">
                             <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
                                 <PolarGrid stroke="rgba(255,255,255,0.1)" />
@@ -266,7 +271,7 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                         Impact du Finetuning (Projection)
                     </h3>
                     <p className="text-xs text-muted-foreground mb-4">Comparatif : Modèle générique (Base) vs Version optimisée matériellement</p>
-                    <div className="h-[250px] w-full">
+                    <div className="h-[400px] w-full">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={tuningData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }} barGap={6}>
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.1)" />
@@ -282,6 +287,33 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                 </motion.div>
             </div>
 
+            {/* 3D Global Visualization & Simulator */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <motion.div variants={item} className="w-full lg:col-span-2">
+                    <BarChart3DViewer
+                        data={filteredData}
+                        onSelect={(id) => {
+                            const test = benchmarks.find(b => b.id === id);
+                            if (test) setSelectedTest(test);
+                        }}
+                        onHover={(id) => {
+                            if (id) {
+                                const test = benchmarks.find(b => b.id === id);
+                                if (test) setHoveredTest(test);
+                            } else {
+                                setHoveredTest(null);
+                            }
+                        }}
+                    />
+                </motion.div>
+                <motion.div variants={item} className="w-full lg:col-span-1">
+                    <TokenSimulator
+                        speed={(hoveredTest || selectedTest)?.single_tokens_per_sec || 0}
+                        modelName={(hoveredTest || selectedTest)?.model_name || ''}
+                    />
+                </motion.div>
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
                 {/* 3. Area Chart - Temporal Volume */}
@@ -293,7 +325,7 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                     <p className="text-xs text-muted-foreground mb-4">Évolution fluide des performances IA par lancement continu</p>
                     <div className="h-[250px] w-full cursor-pointer">
                         <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={evolutionData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} onClick={(e) => { if (e?.activePayload) setSelectedTest(e.activePayload[0].payload.fullObj); }}>
+                            <AreaChart data={evolutionData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} onClick={(e: any) => { if (e?.activePayload) setSelectedTest(e.activePayload[0].payload.fullObj); }}>
                                 <defs>
                                     <linearGradient id="colorSpeed" x1="0" y1="0" x2="0" y2="1">
                                         <stop offset="5%" stopColor="#06B6D4" stopOpacity={0.3} />
@@ -347,7 +379,7 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
                     {/* Scatter Chart */}
                     <div className="w-full lg:w-1/3 h-[300px] border border-white/5 rounded-xl p-4 bg-white/[0.01] cursor-pointer">
                         <ResponsiveContainer width="100%" height="100%">
-                            <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: -20 }} onClick={(e) => { if (e?.activePayload) setSelectedTest(e.activePayload[0].payload.fullObj); }}>
+                            <ScatterChart margin={{ top: 10, right: 10, bottom: 10, left: -20 }} onClick={(e: any) => { if (e?.activePayload) setSelectedTest(e.activePayload[0].payload.fullObj); }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
                                 <XAxis type="number" dataKey="ramGb" name="RAM (GB)" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }} />
                                 <YAxis type="number" dataKey="speed" name="Speed" tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }} />
@@ -540,7 +572,7 @@ export default function BenchmarkDashboard({ initialData }: { initialData: any[]
 
                                                                     // Check for Quiz/Flashcard arrays
                                                                     const isArray = Array.isArray(parsedValue);
-                                                                    const items = isArray ? parsedValue : [];
+                                                                    const items = isArray ? (parsedValue as any[]) : [];
 
                                                                     return (
                                                                         <div key={key} className="bg-black/50 p-4 rounded-xl border border-white/10 shadow-inner">
